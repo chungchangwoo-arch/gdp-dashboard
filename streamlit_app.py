@@ -97,6 +97,24 @@ prices = raw.sort_index().ffill().bfill()
 st.subheader("원시 종가 (Adj Close)")
 st.dataframe(prices.tail(10))
 
+# --- 벤치마크가 선택되지 않았더라도 사용자가 sidebar에서 고른 벤치마크가 있다면 자동으로 추가 다운로드
+if benchmark and benchmark != "(없음)" and benchmark not in prices.columns:
+    bench_ticker = TICKERS.get(benchmark)
+    if bench_ticker:
+        with st.spinner(f"벤치마크 {benchmark} 데이터를 추가로 다운로드하는 중입니다..."):
+            bench_raw = download_data([bench_ticker], start_date, end_date + datetime.timedelta(days=1), interval=freq)
+        if bench_raw.empty:
+            st.warning(f"벤치마크 {benchmark} 데이터를 가져오지 못했습니다. 벤치가 선택된 상태인지 확인하세요.")
+        else:
+            # bench_raw columns are ticker strings; rename to friendly name
+            bench_raw = bench_raw.rename(columns={bench_ticker: benchmark})
+            bench_raw = bench_raw.sort_index().ffill().bfill()
+            # merge into prices and forward/backfill
+            prices = prices.join(bench_raw, how="outer").sort_index().ffill().bfill()
+            st.success(f"벤치마크 {benchmark} 데이터가 추가되었습니다.")
+    else:
+        st.warning("선택한 벤치마크의 티커 정보를 찾을 수 없습니다.")
+
 # Normalized prices for comparison
 if normalize:
     norm = prices.divide(prices.iloc[0]).multiply(100)
