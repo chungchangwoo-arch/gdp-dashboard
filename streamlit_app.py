@@ -1,151 +1,86 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import numpy as np
+import time
 
-# Set the title and favicon that appear in the Browser's tab bar.
+# --- 앱 설정 및 제목 ---
 st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+    page_title="Streamlit 배포 실습 데모",
+    page_icon="🚀",
+    layout="wide" # 화면을 넓게 사용하도록 설정
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+st.title("🚀 Streamlit 배포 실습 환영 페이지")
+st.markdown("### 안녕하세요! 이 앱은 Streamlit Community Cloud를 통해 배포되었습니다.")
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+# --- 소개 섹션 ---
+with st.container():
+    st.header("1. 배포 성공 확인 체크리스트")
+    col1, col2 = st.columns(2)
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+    with col1:
+        st.info("✅ **코드 소스:** GitHub 저장소를 사용했는지 확인")
+        st.success("✅ **독립적인 URL:** 본인 계정의 고유한 `.streamlit.app` 주소를 확인")
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+    with col2:
+        st.warning("⚠️ **실시간 반영:** 이 코드를 GitHub에서 수정하면 1분 내로 앱이 자동 업데이트되는지 확인")
+        st.error("❌ **에러 확인:** 만약 앱이 작동하지 않는다면 로그를 확인하고 `requirements.txt` 파일을 점검하세요.")
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+# --- 데이터 시각화 섹션 ---
+st.header("2. 데이터 시각화 및 위젯 테스트")
+st.write("간단한 데이터프레임과 인터랙티브 위젯을 테스트합니다.")
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
+# 1. 데이터프레임 표시
+data = pd.DataFrame(
+    np.random.randn(10, 3),
+    columns=['컬럼 A', '컬럼 B', '컬럼 C']
 )
+st.dataframe(data, use_container_width=True)
 
-''
-''
+# 2. 라인 차트 표시
+st.line_chart(data)
+
+# --- 인터랙티브 위젯 섹션 ---
+st.header("3. 사용자 입력 테스트")
+st.write("슬라이더와 버튼을 움직여 상호작용을 확인하세요.")
+
+# 슬라이더 위젯
+slider_value = st.slider(
+    '반복 횟수를 선택하세요:',
+    min_value=1,
+    max_value=10,
+    value=5,
+    step=1
+)
+st.write(f"현재 선택된 반복 횟수: **{slider_value}회**")
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+# 버튼 위젯 및 상태 업데이트
+if st.button('작업 시작 버튼'):
+    st.text('작업을 시작합니다...')
+    my_bar = st.progress(0)
+    status_text = st.empty()
 
-st.header(f'GDP in {to_year}', divider='gray')
+    for i in range(slider_value):
+        # 진행 상태 업데이트
+        percent_complete = int((i + 1) / slider_value * 100)
+        my_bar.progress(percent_complete)
+        status_text.text(f"현재 {i+1} / {slider_value} 회 반복 중 ({percent_complete}%)")
+        time.sleep(0.1) # 짧은 딜레이
 
-''
+    status_text.success('✅ 모든 작업이 성공적으로 완료되었습니다!')
+    st.balloons()
 
-cols = st.columns(4)
+# --- 사이드바 테스트 ---
+st.sidebar.title("앱 정보")
+st.sidebar.markdown("""
+Streamlit 버전 1.0 이상에서 테스트되었습니다.
+이 앱은 **파이썬으로 웹 앱을 만드는 것이 얼마나 쉬운지** 보여줍니다.
+""")
+st.sidebar.info("문의사항은 말해주세요.")
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+# --- 필수 라이브러리 체크 ---
+# 참고: 이 코드가 실행되려면 requirements.txt에 다음이 포함되어야 합니다.
+# streamlit
+# pandas
+# numpy
