@@ -107,7 +107,13 @@ st.plotly_chart(fig, use_container_width=True)
 # 누적 수익률
 st.subheader("기간 수익률 (누적)")
 cum_returns = prices.pct_change().add(1).cumprod().iloc[-1].sub(1).multiply(100).sort_values(ascending=False)
-bar = px.bar(x=cum_returns.index, y=cum_returns.values, labels={"x":"국가","y":"누적 수익률 (%)"}, text=round(cum_returns.values,2))
+# Use numpy rounding (built-in round() doesn't support numpy arrays)
+bar = px.bar(
+    x=cum_returns.index,
+    y=cum_returns.values,
+    labels={"x": "국가", "y": "누적 수익률 (%)"},
+    text=np.round(cum_returns.values, 2),
+)
 st.plotly_chart(bar, use_container_width=True)
 
 if show_corr:
