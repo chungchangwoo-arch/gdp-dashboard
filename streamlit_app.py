@@ -1,126 +1,137 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
+import numpy as np
+import yfinance as yf
+import plotly.express as px
 import datetime
 
-# --- 페이지 설정 (가장 처음에 위치해야 함) ---
-st.set_page_config(
-    page_title="글로벌 증시 대시보드",
-    page_icon="📈",
-    layout="wide"
+st.set_page_config(page_title="국가별 증시 비교", layout="wide")
+
+st.title("주요 국가별 증시 비교")
+st.markdown(
+    """
+    이 앱은 대표 ETF/지수를 사용해 주요 국가(한국, 미국, 일본, 중국, 독일, 영국)의 증시 성과를 기간별로 비교합니다.
+
+    데이터 출처: Yahoo Finance (yfinance)
+    """
 )
 
-# --- (1) 데이터 정의: 티커 ---
-# 사용자가 선택할 수 있는 주요 증시 지수 목록 (티커, 설명)
+# --- 티커맵 (해당 국가를 대표하는 ETF/지수 티커)
 TICKERS = {
-    "^GSPC": "S&P 500 (미국)",
-    "^IXIC": "NASDAQ (미국)",
-    "^KS11": "KOSPI (한국)",
-    "^N225": "Nikkei 225 (일본)",
-    "000001.SS": "상해종합 (중국)",
-    "^FTSE": "FTSE 100 (영국)",
-    "^GDAXI": "DAX (독일)",
+    "한국 (EWY)": "EWY",        # iShares MSCI South Korea ETF
+    "미국 (SPY)": "SPY",        # SPDR S&P 500 ETF
+    "일본 (EWJ)": "EWJ",        # iShares MSCI Japan ETF
+    "중국 (FXI)": "FXI",        # iShares China Large-Cap ETF
+    "독일 (EWG)": "EWG",        # iShares MSCI Germany ETF
+    "영국 (EWU)": "EWU",        # iShares MSCI United Kingdom ETF
 }
-TICKER_LABELS = list(TICKERS.values())
-TICKER_SYMBOLS = list(TICKERS.keys())
 
-# --- (2) 사이드바: 사용자 입력 (위젯) ---
-st.sidebar.header("📈 옵션 선택")
+# Sidebar: 유저 입력
+st.sidebar.header("설정")
+default_countries = list(TICKERS.keys())
+countries = st.sidebar.multiselect("비교할 국가 선택", options=default_countries, default=default_countries)
 
-# 1. 지수 선택 (Multi-select)
-selected_labels = st.sidebar.multiselect(
-    "비교할 지수를 선택하세요:",
-    options=TICKER_LABELS,
-    default=[TICKER_LABELS[0], TICKER_LABELS[2]]  # 기본값: S&P 500, KOSPI
-)
-
-# 선택된 레이블을 다시 티커 심볼로 변환
-selected_symbols = [symbol for symbol, label in TICKERS.items() if label in selected_labels]
-
-# 2. 기간 선택 (Date Input)
 today = datetime.date.today()
-one_year_ago = today - datetime.timedelta(days=365)
+default_start = today - datetime.timedelta(days=365 * 5)
+start_date = st.sidebar.date_input("시작일", default_start)
+end_date = st.sidebar.date_input("종료일", today)
 
-start_date = st.sidebar.date_input(
-    "시작일",
-    value=one_year_ago,
-    max_value=today - datetime.timedelta(days=1)
-)
-end_date = st.sidebar.date_input(
-    "종료일",
-    value=today,
-    max_value=today
-)
+freq = st.sidebar.selectbox("빈도 (데이터 간격)", ["1d", "1wk", "1mo"], index=0)
 
-# 날짜 유효성 검사
-if start_date >= end_date:
-    st.sidebar.error("오류: 종료일은 시작일보다 이후여야 합니다.")
-    st.stop() # 오류 시 앱 실행 중지
+normalize = st.sidebar.checkbox("기간 시작을 100으로 정규화 (비교용)", value=True)
+show_corr = st.sidebar.checkbox("상관관계 히트맵 표시", value=True)
 
-# --- (3) 데이터 로딩 및 처리 ---
-
-# 캐싱: 동일한 요청 시 데이터를 다시 불러오지 않도록 설정 (속도 향상)
-@st.cache_data
-def load_data(tickers, start, end):
-    try:
-        data = yf.download(tickers, start=start, end=end)["Adj Close"]
-        # 컬럼 이름이 티커(e.g. ^KS11) 대신 레이블(e.g. KOSPI (한국))로 보이도록 변경
-        if len(tickers) == 1:
-            # yf.download가 1개 티커 요청 시 Series를 반환하는 경우 대비
-            data = data.to_frame()
-            data.columns = [TICKERS.get(tickers[0], tickers[0])]
-        else:
-            data = data.rename(columns=TICKERS)
-        
-        # 데이터가 없는 컬럼(e.g. 휴장일) 제거
-        data = data.dropna(axis=1, how='all')
-        
-        return data
-    except Exception as e:
-        st.error(f"데이터 로딩 중 오류 발생: {e}")
+@st.cache_data(ttl=60 * 60 * 6)
+def download_data(tickers, start, end, interval="1d"):
+    # yfinance: returns DataFrame with columns as tickers
+    data = yf.download(list(tickers), start=start, end=end, interval=interval, progress=False)
+    if data.empty:
         return pd.DataFrame()
-
-# 선택된 항목이 있을 경우에만 데이터 로드
-if selected_symbols:
-    raw_data = load_data(selected_symbols, start_date, end_date)
-
-    if raw_data.empty:
-        st.warning("선택된 기간에 데이터가 없거나 로딩에 실패했습니다.")
-    else:
-        # --- (4) 메인 화면: 시각화 ---
-        st.title("📈 주요국 증시 비교 대시보드")
-        st.write(f"기간: **{start_date}** 부터 **{end_date}** 까지")
-
-        # 1. 정규화된 차트 (수익률 비교)
-        st.subheader("수익률 비교 (정규화된 차트)")
-        st.write("선택한 기간의 시작일을 100으로 맞추어 수익률 추이를 비교합니다.")
-        
-        # 정규화 (시작일 기준으로 100으로 맞추기)
-        # (현재 값 / 첫날 값) * 100
+    # some downloads return a multiindex (Adj Close)
+    if ("Adj Close" in data.columns.get_level_values(0)) if hasattr(data.columns, 'levels') else False:
+        data = data["Adj Close"]
+    elif isinstance(data.columns, pd.MultiIndex):
+        # try to pick Adj Close
         try:
-            # 데이터가 있는 첫 번째 날짜를 기준으로 정규화
-            first_valid_idx = raw_data.apply(lambda col: col.first_valid_index()).max()
-            if first_valid_idx is None:
-                raise ValueError("데이터에 유효한 시작점이 없습니다.")
-            
-            normalized_data = (raw_data.loc[first_valid_idx:] / raw_data.loc[first_valid_idx:].iloc[0]) * 100
-            st.line_chart(normalized_data)
-            
-        except Exception as e:
-            st.error(f"정규화 차트 생성 중 오류: {e}")
-            st.write("선택된 지수 중 하나가 해당 기간의 시작일에 데이터가 없을 수 있습니다.")
+            data = data[("Adj Close")]
+        except Exception:
+            # fall back to Close
+            data = data["Close"]
+    else:
+        # single-index columns
+        if "Adj Close" in data.columns:
+            data = data["Adj Close"]
+    # Ensure columns are tickers
+    data = data.loc[:, ~data.columns.duplicated()]
+    return data
 
 
-        # 2. 원본 데이터 차트 (주가 지수)
-        st.subheader("원본 주가 지수")
-        st.write("각 지수의 실제 종가(Adj Close) 추이입니다.")
-        st.line_chart(raw_data)
+if not countries:
+    st.warning("비교할 국가를 하나 이상 선택하세요.")
+    st.stop()
 
-        # 3. 원본 데이터 테이블
-        st.subheader("원본 데이터 (DataFrame)")
-        st.dataframe(raw_data.sort_index(ascending=False), use_container_width=True)
+# Map selection to tickers
+selected_tickers = {name: TICKERS[name] for name in countries}
 
+with st.spinner("데이터를 다운로드하는 중입니다..."):
+    raw = download_data(list(selected_tickers.values()), start_date, end_date + datetime.timedelta(days=1), interval=freq)
+
+if raw.empty:
+    st.error("선택 기간에 사용할 수 있는 데이터가 없습니다. 기간이나 빈도를 조정해 주세요.")
+    st.stop()
+
+# Rename columns to friendly country names
+col_map = {v: k for k, v in selected_tickers.items()}
+raw = raw.rename(columns=col_map)
+
+# Fill missing data forward/backward (simple handling)
+prices = raw.sort_index().ffill().bfill()
+
+st.subheader("원시 종가 (Adj Close)")
+st.dataframe(prices.tail(10))
+
+# Normalized prices for comparison
+if normalize:
+    norm = prices.divide(prices.iloc[0]).multiply(100)
+    chart_df = norm
+    yaxis_title = "정규화된 지수 (시작=100)"
 else:
-    # 아무것도 선택하지 않았을 때의 초기 화면
-    st.title("📈 주요국 증시 비교 대시보드")
-    st.info("사이드바에서 비교할 지수와 기간을 선택해주세요.")
+    chart_df = prices
+    yaxis_title = "가격"
+
+st.subheader("가격 추이")
+fig = px.line(chart_df, x=chart_df.index, y=chart_df.columns, labels={"value": yaxis_title, "index": "날짜"})
+fig.update_layout(legend_title_text="국가")
+st.plotly_chart(fig, use_container_width=True)
+
+# 누적 수익률
+st.subheader("기간 수익률 (누적)")
+cum_returns = prices.pct_change().add(1).cumprod().iloc[-1].sub(1).multiply(100).sort_values(ascending=False)
+bar = px.bar(x=cum_returns.index, y=cum_returns.values, labels={"x":"국가","y":"누적 수익률 (%)"}, text=round(cum_returns.values,2))
+st.plotly_chart(bar, use_container_width=True)
+
+if show_corr:
+    st.subheader("일간 수익률 상관관계")
+    returns = prices.pct_change().dropna()
+    corr = returns.corr()
+    hm = px.imshow(corr, x=corr.columns, y=corr.index, color_continuous_scale='RdBu_r', zmin=-1, zmax=1)
+    hm.update_layout(width=700, height=500)
+    st.plotly_chart(hm)
+
+st.subheader("요약 테이블")
+latest = prices.iloc[-1]
+change_1d = prices.pct_change().iloc[-1].multiply(100)
+change_total = prices.iloc[-1].divide(prices.iloc[0]).subtract(1).multiply(100)
+summary = pd.DataFrame({
+    "최종가격": latest.round(2),
+    "1일등락(%)": change_1d.round(2),
+    "기간 누적(%)": change_total.round(2),
+})
+st.table(summary)
+
+# 다운로드 버튼
+csv = prices.to_csv()
+st.download_button("가격 CSV 다운로드", csv, file_name="market_prices.csv", mime="text/csv")
+
+st.markdown("---")
+st.caption("참고: 이 데이터는 교육/분석용이며 투자 권유가 아닙니다. ETF는 지수와 완전히 동일하지 않을 수 있습니다.")
