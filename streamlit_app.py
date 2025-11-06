@@ -24,12 +24,16 @@ TICKERS = {
     "중국 (FXI)": "FXI",        # iShares China Large-Cap ETF
     "독일 (EWG)": "EWG",        # iShares MSCI Germany ETF
     "영국 (EWU)": "EWU",        # iShares MSCI United Kingdom ETF
+    # 추가 국가 (선택적)
+    "프랑스 (EWQ)": "EWQ",      # iShares MSCI France ETF
+    "캐나다 (EWC)": "EWC",      # iShares MSCI Canada ETF
+    "호주 (EWA)": "EWA",        # iShares MSCI Australia ETF
 }
 
 # Sidebar: 유저 입력
 st.sidebar.header("설정")
 default_countries = list(TICKERS.keys())
-countries = st.sidebar.multiselect("비교할 국가 선택", options=default_countries, default=default_countries)
+countries = st.sidebar.multiselect("비교할 국가 선택", options=default_countries, default=default_countries[:6])
 
 today = datetime.date.today()
 default_start = today - datetime.timedelta(days=365 * 5)
@@ -40,6 +44,9 @@ freq = st.sidebar.selectbox("빈도 (데이터 간격)", ["1d", "1wk", "1mo"], i
 
 normalize = st.sidebar.checkbox("기간 시작을 100으로 정규화 (비교용)", value=True)
 show_corr = st.sidebar.checkbox("상관관계 히트맵 표시", value=True)
+# 추가 입력: 무위험이자율(%) 및 벤치마크 선택
+rf_percent = st.sidebar.number_input("무위험 이자율(연, %)", value=0.0, step=0.01, format="%.2f")
+benchmark = st.sidebar.selectbox("기준 벤치 선택 (옵션)", options=["(없음)"] + default_countries, index=0)
 
 @st.cache_data(ttl=60 * 60 * 6)
 def download_data(tickers, start, end, interval="1d"):
@@ -107,13 +114,19 @@ st.plotly_chart(fig, use_container_width=True)
 # 누적 수익률
 st.subheader("기간 수익률 (누적)")
 cum_returns = prices.pct_change().add(1).cumprod().iloc[-1].sub(1).multiply(100).sort_values(ascending=False)
-# Use numpy rounding (built-in round() doesn't support numpy arrays)
+# 색상: 양수는 녹색, 음수는 빨간색
+bar_colors = ["green" if v >= 0 else "red" for v in cum_returns.values]
+# 텍스트를 퍼센트 문자열로 포맷
+bar_text = [f"{v:.2f}%" for v in cum_returns.values]
 bar = px.bar(
     x=cum_returns.index,
     y=cum_returns.values,
     labels={"x": "국가", "y": "누적 수익률 (%)"},
-    text=np.round(cum_returns.values, 2),
+    text=bar_text,
+    color=cum_returns.index,
 )
+# plotly express로 색상 직접 지정하려면 업데이트
+bar.update_traces(marker_color=bar_colors, textposition='outside')
 st.plotly_chart(bar, use_container_width=True)
 
 if show_corr:
@@ -126,12 +139,23 @@ if show_corr:
 
 st.subheader("요약 테이블")
 latest = prices.iloc[-1]
-change_1d = prices.pct_change().iloc[-1].multiply(100)
+returns = prices.pct_change().dropna()
+change_1d = returns.iloc[-1].multiply(100)
 change_total = prices.iloc[-1].divide(prices.iloc[0]).subtract(1).multiply(100)
+
+# 연환산 관련: freq에 따라 연간 기간 수 설정
+periods_per_year = 252 if freq == "1d" else (52 if freq == "1wk" else 12)
+ann_return = returns.mean().multiply(periods_per_year).multiply(100)  # 단순화된 연환산 수익률(%)
+ann_vol = returns.std().multiply(np.sqrt(periods_per_year)).multiply(100)  # 연환산 변동성(%)
+sharpe = (ann_return - rf_percent) / ann_vol.replace(0, np.nan)
+
 summary = pd.DataFrame({
     "최종가격": latest.round(2),
-    "1일등락(%)": change_1d.round(2),
+    "1단기등락(%)": change_1d.round(2),
     "기간 누적(%)": change_total.round(2),
+    "연환산 수익률(%)": ann_return.round(2),
+    "연환산 변동성(%)": ann_vol.round(2),
+    "샤프비율": sharpe.round(3),
 })
 st.table(summary)
 
@@ -141,3 +165,20 @@ st.download_button("가격 CSV 다운로드", csv, file_name="market_prices.csv"
 
 st.markdown("---")
 st.caption("참고: 이 데이터는 교육/분석용이며 투자 권유가 아닙니다. ETF는 지수와 완전히 동일하지 않을 수 있습니다.")
+
+# 기준 벤치와 상대 성과 (옵션)
+if benchmark and benchmark != "(없음)":
+    # benchmark may be in friendly name format; ensure it's selected
+    if benchmark not in prices.columns:
+        st.warning("선택한 벤치가 현재 선택된 국가 목록에 없습니다. 벤치로 사용하려면 먼저 해당 국가를 선택하세요.")
+    else:
+        st.subheader(f"{benchmark} 대비 상대 성과 (정규화)")
+        bench_series = prices[benchmark]
+        rel = prices.divide(bench_series, axis=0)
+        if normalize:
+            rel = rel.divide(rel.iloc[0]).multiply(100)
+            ylab = "기준 대비 정규화 (기준=100)"
+        else:
+            ylab = "기준 대비 비율"
+        fig_rel = px.line(rel, x=rel.index, y=rel.columns, labels={"value": ylab, "index": "날짜"})
+        st.plotly_chart(fig_rel, use_container_width=True)
