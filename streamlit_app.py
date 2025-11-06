@@ -114,19 +114,39 @@ st.plotly_chart(fig, use_container_width=True)
 # 누적 수익률
 st.subheader("기간 수익률 (누적)")
 cum_returns = prices.pct_change().add(1).cumprod().iloc[-1].sub(1).multiply(100).sort_values(ascending=False)
+
+# --- CAGR (기하평균 연환산 수익률) 계산
+# 기간(년) 계산: 실제 날짜 차이를 이용 (보다 정확함)
+years = (prices.index[-1] - prices.index[0]).days / 365.25 if len(prices.index) > 1 else np.nan
+if years and years > 0:
+    cagr = (prices.iloc[-1].divide(prices.iloc[0])).pow(1 / years).subtract(1).multiply(100)
+else:
+    cagr = pd.Series(np.nan, index=prices.columns)
+
+# 연환산 변동성(%)
+returns = prices.pct_change().dropna()
+periods_per_year = 252 if freq == "1d" else (52 if freq == "1wk" else 12)
+ann_vol = returns.std().multiply(np.sqrt(periods_per_year)).multiply(100)
+
 # 색상: 양수는 녹색, 음수는 빨간색
 bar_colors = ["green" if v >= 0 else "red" for v in cum_returns.values]
-# 텍스트를 퍼센트 문자열로 포맷
-bar_text = [f"{v:.2f}%" for v in cum_returns.values]
+
+# 데이터프레임으로 만들어 hover/tooltip에 CAGR 포함
+df_bar = pd.DataFrame({
+    "국가": cum_returns.index,
+    "누적수익률": cum_returns.values,
+    "CAGR(%)": [cagr.get(k, np.nan).round(2) for k in cum_returns.index],
+})
+
 bar = px.bar(
-    x=cum_returns.index,
-    y=cum_returns.values,
-    labels={"x": "국가", "y": "누적 수익률 (%)"},
-    text=bar_text,
-    color=cum_returns.index,
+    df_bar,
+    x="국가",
+    y="누적수익률",
+    labels={"국가": "국가", "누적수익률": "누적 수익률 (%)"},
+    text=df_bar["누적수익률"].round(2).astype(str) + "%",
+    custom_data=[df_bar["CAGR(%)"]],
 )
-# plotly express로 색상 직접 지정하려면 업데이트
-bar.update_traces(marker_color=bar_colors, textposition='outside')
+bar.update_traces(marker_color=bar_colors, textposition='outside', hovertemplate="국가: %{x}<br>누적수익률: %{y:.2f}%<br>CAGR: %{customdata[0]:.2f}%")
 st.plotly_chart(bar, use_container_width=True)
 
 if show_corr:
