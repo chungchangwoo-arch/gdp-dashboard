@@ -1,13 +1,6 @@
 streamlit
 pandas
 numpy
-scikit-learn
-datetime
+plotly
 yfinance
-plotly.express
-plotly.graph_objects
-timedelta
-Groq
-json
-re
-warnings
+groq
