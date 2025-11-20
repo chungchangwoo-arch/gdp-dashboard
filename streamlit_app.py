@@ -46,6 +46,33 @@ KOREAN_STOCKS = {
 # 역인덱싱 (종목명 -> 코드)
 STOCK_NAME_TO_CODE = {v: k for k, v in KOREAN_STOCKS.items()}
 
+# ===== US Stock Database (Top 20 by Market Cap) =====
+US_STOCKS = {
+    "AAPL": "Apple",
+    "MSFT": "Microsoft",
+    "NVDA": "NVIDIA",
+    "GOOGL": "Alphabet",
+    "AMZN": "Amazon",
+    "TSLA": "Tesla",
+    "META": "Meta Platforms",
+    "BRK.B": "Berkshire Hathaway",
+    "JNJ": "Johnson & Johnson",
+    "V": "Visa",
+    "WMT": "Walmart",
+    "JPM": "JPMorgan Chase",
+    "PG": "Procter & Gamble",
+    "NFLX": "Netflix",
+    "MA": "Mastercard",
+    "XOM": "Exxon Mobil",
+    "COST": "Costco",
+    "DIS": "Disney",
+    "KO": "Coca-Cola",
+    "INTC": "Intel",
+}
+
+# 역인덱싱 (미국 기업명 -> 코드)
+US_STOCK_NAME_TO_CODE = {v: k for k, v in US_STOCKS.items()}
+
 # Initialize Groq client
 groq_client = None
 try:
@@ -80,6 +107,7 @@ FINANCIAL_TERMS = {
     "리밸런싱": "포트폴리오의 자산 비중을 정기적으로 조정하여 원래 목표 비중으로 돌리는 전략입니다.",
     "벤치마크": "투자 성과를 비교하기 위한 기준이 되는 지수입니다. 보통 KOSPI, KOSDAQ 등이 사용됩니다.",
     "아웃퍼포먼스": "포트폴리오가 벤치마크를 상회하는 성과를 거둔 것을 의미합니다.",
+    "기타 용어": "기존 사전에 없는 금융용어를 검색하고 AI에게 설명을 받아보세요.",
 }
 
 # ===== Data Processing Functions =====
@@ -101,7 +129,7 @@ def get_stock_data(ticker, start_date, end_date):
         return None
 
 def clean_ticker(ticker):
-    """종목코드 정리 또는 종목명에서 코드 추출"""
+    """종목코드 정리 또는 종목명에서 코드 추출 (한국 + 미국 주식)"""
     ticker = ticker.strip()
     
     # 코드인 경우 (모두 숫자)
@@ -112,14 +140,27 @@ def clean_ticker(ticker):
     if ticker in STOCK_NAME_TO_CODE:
         return STOCK_NAME_TO_CODE[ticker]
     
+    # 미국 기업명으로 검색
+    if ticker in US_STOCK_NAME_TO_CODE:
+        return US_STOCK_NAME_TO_CODE[ticker]
+    
     # 부분 일치 검색 (한글 포함)
     for name, code in STOCK_NAME_TO_CODE.items():
         if ticker in name or name in ticker:
             return code
     
+    # 미국 기업명 부분 일치 검색
+    for name, code in US_STOCK_NAME_TO_CODE.items():
+        if ticker.lower() in name.lower() or name.lower() in ticker.lower():
+            return code
+    
     # 찾지 못한 경우, 숫자만 있으면 코드로 간주
     ticker_upper = ticker.upper().strip()
     if ticker_upper.isdigit():
+        return ticker_upper
+    
+    # 미국 주식 코드인 경우 (알파벳)
+    if ticker_upper.replace('.', '').isalpha() and len(ticker_upper) <= 6:
         return ticker_upper
     
     return ticker
@@ -1161,40 +1202,81 @@ if tickers and weights:
                         
                         if selected_term:
                             st.write(f"**선택된 용어**: {selected_term}")
-                            st.write(f"**기본 정의**: {FINANCIAL_TERMS[selected_term]}")
-                            st.markdown("---")
                             
-                            # 자주 묻는 질문 예시
-                            st.write("**자주 묻는 질문들:**")
-                            example_questions = {
-                                "샤프지수": "높은 샤프지수는 왜 좋나요?",
-                                "변동성": "변동성을 어떻게 줄일 수 있나요?",
-                                "최대낙폭": "최대낙폭이 중요한 이유는?",
-                                "포트폴리오": "포트폴리오를 어떻게 구성하나요?",
-                            }
-                            
-                            suggested_q = example_questions.get(selected_term, "이 용어를 더 자세히 설명해주세요")
-                            
-                            # 질문 입력
-                            user_question = st.text_area(
-                                "❓ 질문을 입력하세요",
-                                value=suggested_q,
-                                placeholder="예: 샤프지수가 높으면 무엇이 좋나요?",
-                                height=100
-                            )
-                            
-                            if st.button("💬 답변받기", key=f"ask_{selected_term}"):
-                                if user_question.strip():
-                                    with st.spinner("AI가 답변을 생성 중입니다..."):
-                                        answer = ask_question_about_term_with_llm(selected_term, user_question)
-                                        
-                                        if answer:
-                                            st.success("✅ AI 답변")
-                                            st.info(answer)
-                                        else:
-                                            st.warning("❌ 답변 생성에 실패했습니다. 다시 시도해주세요.")
+                            # 기타 용어인 경우 직접 입력
+                            if selected_term == "기타 용어":
+                                custom_term = st.text_input(
+                                    "궁금한 용어를 입력하세요",
+                                    placeholder="예: 옵션, 선물, ETF 등"
+                                )
+                                if custom_term:
+                                    st.write(f"**입력된 용어**: {custom_term}")
+                                    st.markdown("---")
                                 else:
-                                    st.warning("❌ 질문을 입력해주세요.")
+                                    st.warning("용어를 입력해주세요.")
+                            else:
+                                st.write(f"**기본 정의**: {FINANCIAL_TERMS[selected_term]}")
+                                st.markdown("---")
+                            
+                            if selected_term == "기타 용어" and 'custom_term' in locals() and custom_term:
+                                # 기타 용어인 경우
+                                st.write("**자주 묻는 질문들:**")
+                                suggested_q = f"{custom_term}가 무엇인지 자세히 설명해주세요"
+                                
+                                # 질문 입력
+                                user_question = st.text_area(
+                                    "❓ 질문을 입력하세요",
+                                    value=suggested_q,
+                                    placeholder="예: 옵션이 무엇인가요?",
+                                    height=100,
+                                    key="custom_question"
+                                )
+                                
+                                if st.button("💬 답변받기", key="ask_custom_term"):
+                                    if user_question.strip():
+                                        with st.spinner("AI가 답변을 생성 중입니다..."):
+                                            answer = ask_question_about_term_with_llm(custom_term, user_question)
+                                            
+                                            if answer:
+                                                st.success("✅ AI 답변")
+                                                st.info(answer)
+                                            else:
+                                                st.warning("❌ 답변 생성에 실패했습니다. 다시 시도해주세요.")
+                                    else:
+                                        st.warning("❌ 질문을 입력해주세요.")
+                            elif selected_term != "기타 용어":
+                                # 기존 용어인 경우
+                                st.write("**자주 묻는 질문들:**")
+                                example_questions = {
+                                    "샤프지수": "높은 샤프지수는 왜 좋나요?",
+                                    "변동성": "변동성을 어떻게 줄일 수 있나요?",
+                                    "최대낙폭": "최대낙폭이 중요한 이유는?",
+                                    "포트폴리오": "포트폴리오를 어떻게 구성하나요?",
+                                }
+                                
+                                suggested_q = example_questions.get(selected_term, "이 용어를 더 자세히 설명해주세요")
+                                
+                                # 질문 입력
+                                user_question = st.text_area(
+                                    "❓ 질문을 입력하세요",
+                                    value=suggested_q,
+                                    placeholder="예: 샤프지수가 높으면 무엇이 좋나요?",
+                                    height=100,
+                                    key="standard_question"
+                                )
+                                
+                                if st.button("💬 답변받기", key=f"ask_{selected_term}"):
+                                    if user_question.strip():
+                                        with st.spinner("AI가 답변을 생성 중입니다..."):
+                                            answer = ask_question_about_term_with_llm(selected_term, user_question)
+                                            
+                                            if answer:
+                                                st.success("✅ AI 답변")
+                                                st.info(answer)
+                                            else:
+                                                st.warning("❌ 답변 생성에 실패했습니다. 다시 시도해주세요.")
+                                    else:
+                                        st.warning("❌ 질문을 입력해주세요.")
                             
                             # 추천 질문 버튼들
                             st.markdown("---")
@@ -1302,11 +1384,10 @@ if tickers and weights:
                 rebal_col1, rebal_col2 = st.columns(2)
                 with rebal_col1:
                     rebalance_freq = st.select_slider("리밸런싱 빈도", 
-                                                     options=["month", "quarter", "year"],
+                                                     options=["month", "quarter"],
                                                      value="quarter",
                                                      format_func=lambda x: 
-                                                     "월별" if x == "month" else 
-                                                     "분기별" if x == "quarter" else "연간")
+                                                     "월별" if x == "month" else "분기별")
                 with rebal_col2:
                     st.empty()
                 
