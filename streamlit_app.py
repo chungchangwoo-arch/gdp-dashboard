@@ -1251,7 +1251,7 @@ if tickers and weights:
                         start_date,
                         end_date
                     )
-               z 
+
                 if benchmark_comparison:
                     # 벤치마크 차트
                     benchmark_chart = plot_benchmark_comparison(benchmark_comparison)
