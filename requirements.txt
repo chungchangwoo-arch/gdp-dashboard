@@ -5,3 +5,9 @@ scikit-learn
 datetime
 yfinance
 plotly.express
+plotly.graph_objects
+timedelta
+Groq
+json
+re
+warnings
